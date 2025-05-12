@@ -209,8 +209,6 @@ class FactorGraph:
         with torch.cuda.amp.autocast(enabled=False):
             self.target = coords1 + delta.to(dtype=torch.float)
             self.weight = weight.to(dtype=torch.float)
-
-            ht, wd = self.coords0.shape[0:2]
             self.damping[torch.unique(self.ii)] = damping
 
             if use_inactive:
@@ -281,7 +279,7 @@ class FactorGraph:
 
             self.video.dirty[:t] = True
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.cuda.amp.autocast(enabled=True)
     def update_pgba(self, t0=None, t1=None, itrs=2, EP=1e-7, steps=6):
         """ run update operator on factor graph - reduced memory implementation """
 
@@ -289,46 +287,29 @@ class FactorGraph:
         if t1 is None:
             t1 = self.video.counter.value
 
-        num, rig, ch, ht, wd = self.video.fmaps.shape
-        corr_op = AltCorrBlock(self.video.fmaps.view(1, num*rig, ch, ht, wd))
-
         for step in range(steps):
             with torch.cuda.amp.autocast(enabled=False):
                 coords1, mask = self.video.reproject(self.ii, self.jj, sim3=True)
                 motn = torch.cat([coords1 - self.coords0, self.target - coords1], dim=-1)
                 motn = motn.permute(0,1,4,2,3).clamp(-64.0, 64.0)
 
-            s = 8
-            for i in range(0, self.jj.max()+1, s):
-                v = (self.ii >= i) & (self.ii < i + s)
-                if not torch.any(v):
-                    continue
+            # correlation features
+            corr = self.corr(coords1)
+            self.net, delta, weight, damping, upmask = \
+                self.update_op(self.net, self.inp, corr, motn, self.ii, self.jj)
 
-                iis = self.ii[v]
-                jjs = self.jj[v]
+            with torch.cuda.amp.autocast(enabled=False):
+                self.target = coords1 + delta.to(dtype=torch.float)
+                self.weight = weight.to(dtype=torch.float)
+                self.damping[torch.unique(self.ii)] = damping
 
-                ht, wd = self.coords0.shape[0:2]
-                corr1 = corr_op(coords1[:,v], rig * iis, rig * jjs + (iis == jjs).long())
+                ii = torch.cat([self.ii_inac, self.ii], 0)
+                jj = torch.cat([self.jj_inac, self.jj], 0)
+                target = torch.cat([self.target_inac, self.target], 1)
+                weight = torch.cat([self.weight_inac, self.weight], 1)
+                damping = .2 * self.damping[torch.unique(torch.cat((torch.arange(t0, t1, device='cuda'), ii)))].contiguous() + EP
 
-                with torch.cuda.amp.autocast(enabled=True):
-                 
-                    net, delta, weight, damping, upmask = \
-                        self.update_op(self.net[:,v], self.video.inps[None,iis], corr1, motn[:,v], iis, jjs)
-
-                    self.video.upsample(torch.unique(iis), upmask)
-
-                self.net[:,v] = net
-                self.target[:,v] = coords1[:,v] + delta.float()
-                self.weight[:,v] = weight.float()
-                self.damping[torch.unique(iis)] = damping
-
-            ii = torch.cat([self.ii_inac, self.ii], 0)
-            jj = torch.cat([self.jj_inac, self.jj], 0)
-            target = torch.cat([self.target_inac, self.target], 1)
-            weight = torch.cat([self.weight_inac, self.weight], 1)
-            damping = .2 * self.damping[torch.unique(torch.cat((torch.arange(t0, t1, device='cuda'), ii)))].contiguous() + EP
-
-            self.video.cuda_pgba(target, weight, damping, ii, jj, t0, t1, itrs=itrs, lm=1e-5, ep=1e-3)
+                self.video.cuda_pgba(target, weight, damping, ii, jj, t0, t1, itrs=itrs, lm=1e-5, ep=1e-3)
 
         self.video.poses[:t1] = self.video.poses_sim3[:t1,:7]
         self.video.poses[:t1,:3] /= self.video.poses_sim3[:t1,-1:]

@@ -70,13 +70,10 @@ std::vector<torch::Tensor> ba_cuda(
 std::vector<torch::Tensor> pgba_cuda(
     torch::Tensor poses,
     torch::Tensor disps,
+    torch::Tensor intrinsics,
+    torch::Tensor targets,
+    torch::Tensor weights,
     torch::Tensor eta,
-    torch::Tensor Hs,
-    torch::Tensor vs,
-    torch::Tensor Eii,
-    torch::Tensor Eij,
-    torch::Tensor Cii,
-    torch::Tensor wi,
     torch::Tensor Hsp,
     torch::Tensor vsp,
     torch::Tensor ii,
@@ -103,6 +100,8 @@ std::vector<torch::Tensor> altcorr_cuda_forward(
   torch::Tensor fmap1,
   torch::Tensor fmap2,
   torch::Tensor coords,
+  torch::Tensor ii,
+  torch::Tensor jj,
   int radius);
 
 std::vector<torch::Tensor> altcorr_cuda_backward(
@@ -110,6 +109,8 @@ std::vector<torch::Tensor> altcorr_cuda_backward(
   torch::Tensor fmap2,
   torch::Tensor coords,
   torch::Tensor corr_grad,
+  torch::Tensor ii,
+  torch::Tensor jj,
   int radius);
 
 
@@ -170,13 +171,10 @@ std::vector<torch::Tensor> ba(
 std::vector<torch::Tensor> pgba(
     torch::Tensor poses,
     torch::Tensor disps,
+    torch::Tensor intrinsics,
+    torch::Tensor targets,
+    torch::Tensor weights,
     torch::Tensor eta,
-    torch::Tensor Hs,
-    torch::Tensor vs,
-    torch::Tensor Eii,
-    torch::Tensor Eij,
-    torch::Tensor Cii,
-    torch::Tensor wi,
     torch::Tensor Hsp,
     torch::Tensor vsp,
     torch::Tensor ii,
@@ -193,8 +191,7 @@ std::vector<torch::Tensor> pgba(
   CHECK_INPUT(ii);
   CHECK_INPUT(jj);
 
-  return pgba_cuda(poses, disps, eta,
-                Hs, vs, Eii, Eij, Cii, wi,
+  return pgba_cuda(poses, disps, intrinsics, targets, weights, eta,
                 Hsp, vsp, ii, jj, iip, jjp, t0, t1, lm, ep);
 
 }
@@ -281,12 +278,14 @@ std::vector<torch::Tensor> altcorr_forward(
     torch::Tensor fmap1,
     torch::Tensor fmap2,
     torch::Tensor coords,
+    torch::Tensor ii,
+    torch::Tensor jj,
     int radius) {
   CHECK_INPUT(fmap1);
   CHECK_INPUT(fmap2);
   CHECK_INPUT(coords);
 
-  return altcorr_cuda_forward(fmap1, fmap2, coords, radius);
+  return altcorr_cuda_forward(fmap1, fmap2, coords, ii, jj, radius);
 }
 
 std::vector<torch::Tensor> altcorr_backward(
@@ -294,13 +293,15 @@ std::vector<torch::Tensor> altcorr_backward(
     torch::Tensor fmap2,
     torch::Tensor coords,
     torch::Tensor corr_grad,
+    torch::Tensor ii,
+    torch::Tensor jj,
     int radius) {
   CHECK_INPUT(fmap1);
   CHECK_INPUT(fmap2);
   CHECK_INPUT(coords);
   CHECK_INPUT(corr_grad);
 
-  return altcorr_cuda_backward(fmap1, fmap2, coords, corr_grad, radius);
+  return altcorr_cuda_backward(fmap1, fmap2, coords, corr_grad, ii, jj, radius);
 }
 
 

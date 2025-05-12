@@ -123,8 +123,9 @@ class PGOBuffer:
         self.rel_N.value += N
 
     def _pgba(self, LC_data):
+        start_time = time.time()
         lcii, lcjj = LC_data['lcii'], LC_data['lcjj']
-        graph = FactorGraph(self.video, self.net.update, corr_impl="alt", max_factors=-1)
+        graph = FactorGraph(self.video, self.net.update, corr_impl="volume", max_factors=-1)
         ii, jj = torch.cat((lcii, lcjj, self.frontend.graph.ii)), torch.cat((lcjj, lcii, self.frontend.graph.jj))
         graph.add_factors(ii, jj)
 
@@ -142,7 +143,6 @@ class PGOBuffer:
                 t1 = self.video.counter.value
                 self.video.poses_sim3[:t1, 7] = 1
                 self.video.poses_sim3[:t1, :7] = self.video.poses[:t1]
-                Log(f"run with {graph.ii.shape[0]} factors from keyframe {t0} to {t1}", tag="PGBA")
 
                 graph.update_pgba(t0=t0, t1=t1)
 
@@ -150,6 +150,8 @@ class PGOBuffer:
                     self.frontend.graph.update(None, None, use_inactive=True)
 
                 self.video.dirty[:self.video.counter.value] = True
+
+        Log(f"run with {graph.ii.shape[0]} factors from keyframe {t0} to {t1} took {time.time() - start_time:.2f} seconds", tag="PGBA")
 
         self.add_rel_poses(ii[:2*len(lcii)], jj[:2*len(lcii)], graph.target[:,:2*len(lcii)], graph.weight[:,:2*len(lcii)])
         del graph
@@ -191,8 +193,8 @@ class PGOBuffer:
 
             ls = oris < 120
             if np.sum(ls) > 0:
-                self.lcii = torch.cat([self.lcii, ii[ls==True]])
-                self.lcjj = torch.cat([self.lcjj, jj[ls==True]])
+                self.lcii = torch.cat([self.lcii, ii[ls==True][:10]])
+                self.lcjj = torch.cat([self.lcjj, jj[ls==True][:10]])
 
     @torch.no_grad()
     def spin(self):
