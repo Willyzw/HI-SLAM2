@@ -350,6 +350,7 @@ renderCUDA(
 	const float* __restrict__ view_points,
 	const float2* __restrict__ points_xy_image,
 	const float* __restrict__ features,
+	const float* __restrict__ semantics,
 	const float* __restrict__ ts,
 	const float2* __restrict__ ray_planes,
 	const float4* __restrict__ conic_opacity,
@@ -359,6 +360,7 @@ renderCUDA(
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
 	float* __restrict__ out_color,
+	float* __restrict__ out_semantic,
 	float* __restrict__ out_depth,
 	float* __restrict__ accum_depth,
 	int * __restrict__ n_touched)
@@ -388,6 +390,7 @@ renderCUDA(
 	__shared__ int collected_id[BLOCK_SIZE];
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float collected_feature[BLOCK_SIZE * CHANNELS];
+	__shared__ float collected_semantic[BLOCK_SIZE * CHANNELS];
 	__shared__ float collected_mean3d[BLOCK_SIZE * 3];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_ts[BLOCK_SIZE];
@@ -398,6 +401,7 @@ renderCUDA(
 	uint32_t contributor = 0;
 	uint32_t last_contributor = 0;
 	float C[CHANNELS] = { 0 };
+	float S[CHANNELS] = { 0 };
 	float weight = 0;
 	float Depth = 0;
 
@@ -417,8 +421,10 @@ renderCUDA(
 			collected_id[block.thread_rank()] = coll_id;
 			collected_xy[block.thread_rank()] = points_xy_image[coll_id];
 			collected_conic_opacity[block.thread_rank()] = conic_opacity[coll_id];
-			for(int ch = 0; ch < CHANNELS; ch++)
+			for(int ch = 0; ch < CHANNELS; ch++) {
 				collected_feature[ch * BLOCK_SIZE + block.thread_rank()] = features[coll_id * CHANNELS + ch];
+				collected_semantic[ch * BLOCK_SIZE + block.thread_rank()] = semantics[coll_id * CHANNELS + ch];
+			}
 			if constexpr (DEPTH)
 			{
 				collected_ts[block.thread_rank()] = ts[coll_id];
@@ -460,8 +466,10 @@ renderCUDA(
 
 			const float aT = alpha * T;
 			// Eq. (3) from 3D Gaussian splatting paper.
-			for (int ch = 0; ch < CHANNELS; ch++)
+			for (int ch = 0; ch < CHANNELS; ch++) {
 				C[ch] += collected_feature[j + BLOCK_SIZE * ch] * aT;
+				S[ch] += collected_semantic[j + BLOCK_SIZE * ch] * aT;
+			}
 
 			if constexpr (DEPTH)
 			{
@@ -490,8 +498,10 @@ renderCUDA(
 	if (inside)
 	{
 		n_contrib[pix_id] = last_contributor;
-		for (int ch = 0; ch < CHANNELS; ch++)
+		for (int ch = 0; ch < CHANNELS; ch++) {
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+			out_semantic[ch * H * W + pix_id] = S[ch] + T * bg_color[ch];
+		}
 		out_alpha[pix_id] = weight; //1 - T;
 
 		if constexpr (DEPTH)
@@ -519,6 +529,7 @@ void FORWARD::render(
 	const float* view_points,
 	const float2* means2D,
 	const float* colors,
+	const float* semantics,
 	const float* ts,
 	const float2* ray_planes,
 	const float4* conic_opacity,
@@ -527,14 +538,15 @@ void FORWARD::render(
 	uint32_t* n_contrib,
 	const float* bg_color,
 	float* out_color,
+	float* out_semantic,
 	float* out_depth,
 	float* accum_depth,
 	int* n_touched)
 {
 	renderCUDA<NUM_CHANNELS, true> <<<grid, block>>> ( \
-		ranges, point_list, W, H, view_points, means2D, colors, ts, ray_planes, \
+		ranges, point_list, W, H, view_points, means2D, colors, semantics, ts, ray_planes, \
 		conic_opacity, focal_x, focal_y, out_alpha, n_contrib, bg_color, out_color, \
-		out_depth, \
+		out_semantic, out_depth, \
 		accum_depth, n_touched);
 }
 

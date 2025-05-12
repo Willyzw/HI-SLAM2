@@ -33,6 +33,7 @@ class DepthVideo:
         self.disps_prior_up = torch.zeros(buffer, ht, wd, device="cpu", dtype=torch.float).share_memory_()
         self.intrinsics = torch.zeros(buffer, 4, device="cuda", dtype=torch.float).share_memory_()
         self.normals = torch.zeros(buffer, 3, ht, wd, device="cpu", dtype=torch.float)
+        self.semantics = torch.zeros(buffer, 3, ht, wd, device="cpu", dtype=torch.uint8)
 
         ### feature attributes ###
         self.fmaps = torch.zeros(buffer, 1, 128, ht//8, wd//8, dtype=torch.half, device="cuda").share_memory_()
@@ -88,6 +89,9 @@ class DepthVideo:
 
         if len(item) > 9:
             self.inps[index] = item[9]
+        
+        if len(item) > 10:
+            self.semantics[index] = item[10]
 
     def __setitem__(self, index, item):
         with self.get_lock():
@@ -119,6 +123,7 @@ class DepthVideo:
         with self.get_lock():
             self.tstamp[ix+n:self.counter.value+n] = self.tstamp[ix:self.counter.value].clone()
             self.images[ix+n:self.counter.value+n] = self.images[ix:self.counter.value].clone()
+            self.semantics[ix+n:self.counter.value+n] = self.semantics[ix:self.counter.value].clone()
             self.dirty[ix+n:self.counter.value+n] = self.dirty[ix:self.counter.value].clone()
             self.poses[ix+n:self.counter.value+n] = self.poses[ix:self.counter.value].clone()
             self.poses_sim3[ix+n:self.counter.value+n] = self.poses_sim3[ix:self.counter.value].clone()

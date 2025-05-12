@@ -60,6 +60,37 @@ def integrate(depth_file_names, color_file_names, intrinsic, extrinsic, args):
     return vbg
 
 
+def overlay_images(color_image, semantic_image, alpha=0.6):
+    """
+    Overlay a color image and a semantic image of the same size with a specified alpha.
+    
+    Args:
+        color_image (numpy.ndarray): The color image (H, W, 3).
+        semantic_image (numpy.ndarray): The semantic image (H, W, 3) or (H, W).
+        alpha (float): The transparency factor for the semantic image (default is 0.3).
+        
+    Returns:
+        numpy.ndarray: The overlayed image.
+    """
+    # Ensure the semantic image has three channels
+    if len(semantic_image.shape) == 2:
+        semantic_image = cv2.cvtColor(semantic_image, cv2.COLOR_GRAY2BGR)
+    
+    # Check that both images have the same size
+    if color_image.shape[:2] != semantic_image.shape[:2]:
+        raise ValueError("The color image and semantic image must have the same dimensions.")
+    
+    # Normalize the semantic image to match the range of the color image
+    semantic_image = semantic_image.astype(float)
+    semantic_image = cv2.normalize(semantic_image, None, 0, 255, cv2.NORM_MINMAX)
+    semantic_image = semantic_image.astype(np.uint8)
+    
+    # Blend the images
+    overlay = cv2.addWeighted(color_image, 1 - alpha, semantic_image, alpha, 0)
+    
+    return overlay
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Integrate depth maps into TSDF')
     parser.add_argument('--result', type=str, required=True, help='Path to the result folder')
@@ -71,6 +102,14 @@ if __name__ == '__main__':
 
     depth_file_names = sorted(glob(f'{args.result}/renders/depth_after_opt/*'))
     color_file_names = sorted(glob(f'{args.result}/renders/image_after_opt/*'))
+    semantic_file_names = sorted(glob(f'{args.result}/renders/semantic_after_opt/*'))
+
+    os.makedirs(f'{args.result}/renders/overlay_after_opt', exist_ok=True)
+    for c, s in zip(color_file_names, semantic_file_names):
+        overlay = overlay_images(cv2.imread(c), cv2.imread(s))
+        cv2.imwrite(f'{args.result}/renders/overlay_after_opt/{os.path.basename(c)}', overlay)
+    color_file_names = sorted(glob(f'{args.result}/renders/overlay_after_opt/*'))
+
     stamps = [float(os.path.basename(i)[:-4]) for i in color_file_names]
     print(f"Found {len(depth_file_names)} depth maps and {len(color_file_names)} color images")
 

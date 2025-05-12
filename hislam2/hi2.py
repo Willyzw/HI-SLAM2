@@ -24,6 +24,7 @@ class Hi2:
         self.config = config = load_config(args.config)
         self.args = args
         self.images = {}
+        self.semantic_images = {}
 
         # store images, depth, poses, intrinsics (shared between processes)
         self.video = DepthVideo(config, args.image_size, args.buffer)
@@ -77,19 +78,21 @@ class Hi2:
                 'images':   self.video.images[viz_idx.cpu()],
                 'normals':  self.video.normals[viz_idx.cpu()],
                 'depths':   1./self.video.disps_up[viz_idx.cpu()],
+                'semantics': self.video.semantics[viz_idx.cpu()],
                 'intrinsics':   self.video.intrinsics[viz_idx].to(device='cpu') * 8,
                 'pose_updates':  dposes.to(device='cpu') if dposes is not None else None,
                 'scale_updates': dscale.to(device='cpu') if dscale is not None else None}
         self.gs.process_track_data(data)
 
-    def track(self, tstamp, image, intrinsics=None, is_last=False):
+    def track(self, tstamp, image, semantic=None, intrinsics=None, is_last=False):
         """ main thread - update map """
 
         with torch.no_grad():
             self.images[tstamp] = image
+            self.semantic_images[tstamp] = semantic
 
             # check there is enough motion
-            self.filterx.track(tstamp, image, intrinsics, is_last)
+            self.filterx.track(tstamp, image, semantic, intrinsics, is_last)
 
             # local bundle adjustment
             viz_idx = self.frontend(is_last=is_last)
@@ -160,5 +163,5 @@ class Hi2:
         self.video.poses[:self.video.counter.value] = torch.tensor(updated_poses[:,1:])
 
         traj_full = self.traj_filler(self.images)
-        self.gs.eval_rendering(self.images, self.args.gtdepthdir, traj_full.matrix().data, self.video.tstamp[:self.video.counter.value].to(device='cpu'))
+        self.gs.eval_rendering(self.images, self.semantic_images, self.args.gtdepthdir, traj_full.matrix().data, self.video.tstamp[:self.video.counter.value].to(device='cpu'))
         return traj_full.inv().data.cpu().numpy()

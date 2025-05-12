@@ -108,3 +108,73 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean()
     else:
         return ssim_map.mean(1).mean(1).mean(1)
+
+
+def recolor_semantic_img(rendered_seg, gt_seg, color_map=None):
+    """Adjust the semantic color by assigning to the closest color refer to
+       the ground truth semantic image or color dict.
+    """
+    rendered_seg = rendered_seg.permute(1, 2, 0) # (3, H, W) -> (H, W, 3)
+    gt_seg = gt_seg.permute(1, 2, 0)
+    img_shape = gt_seg.shape
+    rendered_seg = rendered_seg.reshape(-1, 1, 3).type(torch.float32) # (H*W, 1, 3)
+
+    if color_map is None:
+        gt_seg = gt_seg.reshape(-1, 3)
+        # Find unique colors
+        color_map, _ = torch.unique(gt_seg, dim=0, return_inverse=True)
+    refer_color = color_map.reshape(1, -1, 3).type(torch.float32).to(gt_seg.device) # (1, H*W, 3)
+
+    # l1_distances = torch.sum(torch.abs(rendered_seg - refer_color), axis=2)
+    l1_distances = torch.sqrt(torch.sum((rendered_seg - refer_color) ** 2, axis=2))
+    # Find the index of the minimum distance for each pixel
+    closest_indices = torch.argmin(l1_distances, axis=1)
+    del l1_distances
+
+    # Assign the closest color to the rendered semantic image
+    rendered_seg[:, 0, :] = refer_color.squeeze(0)[closest_indices]
+    rendered_seg = rendered_seg.reshape(img_shape) # (H*W, 1, 3) -> (H, W, 3)
+    rendered_seg = rendered_seg.permute(2, 0, 1) # (H, W, 3) -> (3, H, W)
+    
+    return rendered_seg
+
+
+def miou(recolored_img_pred, gt_img):
+    """
+    Input : 
+        recolored_img_pred: torch tensor of the colored semantic image, shape (C, H, W)
+        gt_img: torch tensor of the colored semantic image, shape (C, H, W)
+    """
+    recolored_img = recolor_semantic_img(recolored_img_pred, gt_img)
+    gt_flat = gt_img.permute(1, 2, 0).view(-1, 3)
+    pred_flat = recolored_img.permute(1, 2, 0).view(-1, 3)
+
+    # Filter out [0, 0, 0] (unlabeled) pixels
+    labeled_pixels = (gt_flat != torch.tensor([0, 0, 0], dtype=torch.uint8).cuda()).any(dim=1)
+    gt_flat = gt_flat[labeled_pixels]
+    pred_flat = pred_flat[labeled_pixels]
+
+    unique_colors = torch.unique(gt_flat, dim=0)
+    iou_per_color = []
+
+    for color in unique_colors:
+        # Skip the unlabeled color
+        if torch.equal(color, torch.tensor([0, 0, 0], dtype=torch.uint8).cuda()):
+            continue
+
+        gt_matches = torch.all(gt_flat == color, dim=1)
+        pred_matches = torch.all(pred_flat == color, dim=1)
+
+        # Calculate intersection and union
+        intersection = torch.logical_and(gt_matches, pred_matches).sum().item()
+        union = torch.logical_or(gt_matches, pred_matches).sum().item()
+
+        if union == 0:
+            continue
+
+        iou = intersection / union
+        iou_per_color.append(iou)
+
+    # Calculate mean IoU
+    miou = sum(iou_per_color) / len(iou_per_color) if iou_per_color else 0
+    return miou

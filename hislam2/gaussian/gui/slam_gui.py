@@ -183,6 +183,10 @@ class SLAM_GUI:
         self.depth_chbox.checked = False
         chbox_tile_geometry.add_child(self.depth_chbox)
 
+        self.semantic_chbox = gui.Checkbox("Semantic")
+        self.semantic_chbox.checked = False
+        chbox_tile_geometry.add_child(self.semantic_chbox)
+
         self.opacity_chbox = gui.Checkbox("Opacity")
         self.opacity_chbox.checked = False
         chbox_tile_geometry.add_child(self.opacity_chbox)
@@ -594,6 +598,17 @@ class SLAM_GUI:
             depth = torch.permute(depth, (2, 0, 1)).float()
             depth = (depth).byte().permute(1, 2, 0).contiguous().cpu().numpy()
             render_img = o3d.geometry.Image(depth)
+
+        elif self.semantic_chbox.checked:
+            semantic = (
+                (torch.clamp(results["semantic"], min=0, max=1.0) * 255)
+                .byte()
+                .permute(1, 2, 0)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
+            render_img = o3d.geometry.Image(semantic)
 
         elif self.opacity_chbox.checked:
             opacity = results["opacity"]

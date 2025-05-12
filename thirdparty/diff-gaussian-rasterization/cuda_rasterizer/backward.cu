@@ -752,6 +752,7 @@ renderCUDA(
 	const float2* __restrict__ points_xy_image,
 	const float4* __restrict__ conic_opacity,
 	const float* __restrict__ colors,
+	const float* __restrict__ semantics,
 	const float* __restrict__ depths,
 	const float* __restrict__ ts,
 	const float2* __restrict__ ray_planes,
@@ -759,6 +760,7 @@ renderCUDA(
 	const float* __restrict__ accum_depth,
 	const uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ dL_dpixels,
+	const float* __restrict__ dL_dpixel_semantics,
 	const float* __restrict__ dL_dpixel_depths,
 	const float focal_x, 
 	const float focal_y,
@@ -766,6 +768,7 @@ renderCUDA(
 	float4* __restrict__ dL_dconic2D,
 	float* __restrict__ dL_dopacity,
 	float* __restrict__ dL_dcolors,
+	float* __restrict__ dL_dsemantics,
 	float* __restrict__ dL_dts,
 	float2* __restrict__ dL_dray_planes)
 {
@@ -794,6 +797,7 @@ renderCUDA(
 	__shared__ float2 collected_xy[BLOCK_SIZE];
 	__shared__ float4 collected_conic_opacity[BLOCK_SIZE];
 	__shared__ float collected_colors[C * BLOCK_SIZE];
+	__shared__ float collected_semantics[C * BLOCK_SIZE];
 	__shared__ float collected_mean3d[3 * BLOCK_SIZE];
 	__shared__ float collected_ts[BLOCK_SIZE];
 	__shared__ float2 collected_ray_planes[BLOCK_SIZE];
@@ -802,6 +806,7 @@ renderCUDA(
 	__shared__ float4 dL_dconic2D_shared[BLOCK_SIZE];
 	__shared__ float dL_dopacity_shared[BLOCK_SIZE];
 	__shared__ float3 dL_dcolors_shared[BLOCK_SIZE];
+	__shared__ float3 dL_dsemantics_shared[BLOCK_SIZE];
 	__shared__ float dL_dts_shared[BLOCK_SIZE];
 	__shared__ float2 dL_dray_planes_shared[BLOCK_SIZE];
 
@@ -820,7 +825,9 @@ renderCUDA(
 	const int last_contributor = inside ? n_contrib[pix_id] : 0;
 
 	float accum_rec[C] = { 0 };
+	float accum_rec_semantic[C] = { 0 };
 	float dL_dpixel[C];
+	float dL_dpixel_semantic[C];
 	float accum_t_rec = 0;
 	float dL_dpixel_t;
 	float accum_alpha_rec = 0;
@@ -830,6 +837,7 @@ renderCUDA(
 		#pragma unroll
 		for (int i = 0; i < C; i++) {
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
+			dL_dpixel_semantic[i] = dL_dpixel_semantics[i * H * W + pix_id];
 		}
 
 		float ww = w_final*w_final;
@@ -844,6 +852,7 @@ renderCUDA(
 
 	float last_alpha = 0;
 	float last_color[C] = { 0 };
+	float last_semantic[C] = { 0 };
 	float last_t = 0;
 	float last_dL_dw = 0;
 
@@ -869,6 +878,7 @@ renderCUDA(
 			#pragma unroll
 			for (int i = 0; i < C; i++) {
 				collected_colors[i * BLOCK_SIZE + tid] = colors[coll_id * C + i];
+				collected_semantics[i * BLOCK_SIZE + tid] = semantics[coll_id * C + i];
 			}
 			if constexpr (DEPTH)
 			{
@@ -938,6 +948,21 @@ renderCUDA(
 			dL_dcolors_shared[tid].y = local_dL_dcolors[1];
 			dL_dcolors_shared[tid].z = local_dL_dcolors[2];
 
+			float local_dL_dsemantics[C];
+			#pragma unroll
+			for (int ch = 0; ch < C; ch++) {
+				const float s = collected_semantics[ch * BLOCK_SIZE + j];
+				accum_rec_semantic[ch] = skip ? accum_rec_semantic[ch] : last_alpha * last_semantic[ch] + (1.f - last_alpha) * accum_rec_semantic[ch];
+				last_semantic[ch] = skip ? last_semantic[ch] : s;
+
+				const float dL_dchannel = dL_dpixel_semantic[ch];
+				dL_dopa += (s - accum_rec_semantic[ch]) * dL_dchannel;
+				local_dL_dsemantics[ch] = skip ? 0.0f : dchannel_dcolor * dL_dchannel;
+			}
+			dL_dsemantics_shared[tid].x = local_dL_dsemantics[0];
+			dL_dsemantics_shared[tid].y = local_dL_dsemantics[1];
+			dL_dsemantics_shared[tid].z = local_dL_dsemantics[2];
+
 			float dL_dt;
 			float2 ray_plane;
 
@@ -1003,6 +1028,7 @@ renderCUDA(
 				dL_dconic2D_shared,
 				dL_dopacity_shared,
 				dL_dcolors_shared, 
+				dL_dsemantics_shared,
 				dL_dts_shared,
 				dL_dray_planes_shared
 			);
@@ -1012,6 +1038,7 @@ renderCUDA(
 				float4 dL_dconic2D_acc = dL_dconic2D_shared[0];
 				float dL_dopacity_acc = dL_dopacity_shared[0];
 				float3 dL_dcolors_acc = dL_dcolors_shared[0];
+				float3 dL_dsemantics_acc = dL_dsemantics_shared[0];
 				float dL_dts_acc = dL_dts_shared[0];
 				float2 dL_dray_planes_acc = dL_dray_planes_shared[0];
 
@@ -1024,6 +1051,9 @@ renderCUDA(
 				atomicAdd(&dL_dcolors[global_id * C + 0], dL_dcolors_acc.x);
 				atomicAdd(&dL_dcolors[global_id * C + 1], dL_dcolors_acc.y);
 				atomicAdd(&dL_dcolors[global_id * C + 2], dL_dcolors_acc.z);
+				atomicAdd(&dL_dsemantics[global_id * C + 0], dL_dsemantics_acc.x);
+				atomicAdd(&dL_dsemantics[global_id * C + 1], dL_dsemantics_acc.y);
+				atomicAdd(&dL_dsemantics[global_id * C + 2], dL_dsemantics_acc.z);
 				atomicAdd(&dL_dts[global_id], dL_dts_acc);
 				atomicAdd(&dL_dray_planes[global_id].x, dL_dray_planes_acc.x);
 				atomicAdd(&dL_dray_planes[global_id].y, dL_dray_planes_acc.y);
@@ -1122,6 +1152,7 @@ void BACKWARD::render(
 	const float2* means2D,
 	const float4* conic_opacity,
 	const float* colors,
+	const float* semantics,
 	const float* depths,
 	const float* ts,
 	const float2* ray_planes,
@@ -1129,6 +1160,7 @@ void BACKWARD::render(
 	const float* accum_depth,
 	const uint32_t* n_contrib,
 	const float* dL_dpixels,
+	const float* dL_dpixel_semantic,
 	const float* dL_dpixel_depth,
 	const float focal_x, 
 	const float focal_y,
@@ -1136,14 +1168,15 @@ void BACKWARD::render(
 	float4* dL_dconic2D,
 	float* dL_dopacity,
 	float* dL_dcolors,
+	float* dL_dsemantics,
 	float* dL_dts,
 	float2* dL_dray_planes)
 {
     renderCUDA<NUM_CHANNELS, true> <<<grid, block>>> ( \
         ranges, point_list, W, H, bg_color, view_points, means2D, conic_opacity, colors, \
-        depths, ts, ray_planes, alphas, \
+        semantics, depths, ts, ray_planes, alphas, \
 		accum_depth, \
-        n_contrib, dL_dpixels, dL_dpixel_depth, \
+        n_contrib, dL_dpixels, dL_dpixel_semantic, dL_dpixel_depth, \
         focal_x, focal_y, dL_dmean2D, dL_dconic2D, dL_dopacity, dL_dcolors, \
-        dL_dts, dL_dray_planes);
+        dL_dsemantics, dL_dts, dL_dray_planes);
 }

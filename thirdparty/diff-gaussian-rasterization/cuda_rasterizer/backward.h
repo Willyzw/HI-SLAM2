@@ -30,6 +30,7 @@ namespace BACKWARD
 		const float2* means2D,
 		const float4* conic_opacity,
 		const float* colors,
+		const float* semantics,
 		const float* depths,
 		const float* ts,
 		const float2* ray_planes,
@@ -37,6 +38,7 @@ namespace BACKWARD
 		const float* accum_depth,
 		const uint32_t* n_contrib,
 		const float* dL_dpixels,
+		const float* dL_dpixel_semantic,
 		const float* dL_dpixel_depth,
 		const float focal_x, 
 		const float focal_y,
@@ -44,6 +46,7 @@ namespace BACKWARD
 		float4* dL_dconic2D,
 		float* dL_dopacity,
 		float* dL_dcolors,
+		float* dL_dsemantics,
 		float* dL_dts,
 		float2* dL_dray_planes);
 

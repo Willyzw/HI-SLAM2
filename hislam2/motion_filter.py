@@ -74,7 +74,7 @@ class MotionFilter:
 
     @torch.cuda.amp.autocast(enabled=True)
     @torch.no_grad()
-    def track(self, tstamp, image, intrinsics=None, is_last=False):
+    def track(self, tstamp, image, semantic=None, intrinsics=None, is_last=False):
         """ main update operation - run on every frame in video """
 
         Id = lietorch.SE3.Identity(1,).data.squeeze()
@@ -96,7 +96,7 @@ class MotionFilter:
             depth, normal = self.prior_extractor(inputs[0])
             net, inp = self.context_encoder(inputs[:,[0]])
             self.net, self.inp, self.fmap = net, inp, gmap
-            self.video.append(tstamp, image[0], None, 1.0, depth, normal, intrinsics, gmap, net[0], inp[0])
+            self.video.append(tstamp, image[0], None, 1.0, depth, normal, intrinsics, gmap, net[0], inp[0], semantic)
 
         ### only add new frame if there is enough motion ###
         else:                
@@ -121,7 +121,7 @@ class MotionFilter:
                 self.count = 0
                 net, inp = self.context_encoder(inputs[:,[0]])
                 self.net, self.inp, self.fmap = net, inp, gmap
-                self.video.append(tstamp, image[0], None, None, depth, normal, intrinsics, gmap, net[0], inp[0])
+                self.video.append(tstamp, image[0], None, None, depth, normal, intrinsics, gmap, net[0], inp[0], semantic)
 
             else:
                 self.shapeness[tstamp%5] = s

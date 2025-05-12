@@ -99,7 +99,7 @@ class GSBackEnd(mp.Process):
             idx = idx.item()
             idx = packet['tstamp'][i].item()
             tstamp = packet['tstamp'][i].item()
-            viewpoint = Camera.init_from_tracking(packet["images"][i]/255.0, packet["depths"][i], packet["normals"][i], w2c[i], idx, self.projection_matrix, self.K, tstamp)
+            viewpoint = Camera.init_from_tracking(packet["images"][i]/255.0, packet["depths"][i], packet["normals"][i], packet["semantics"][i]/255.0, w2c[i], idx, self.projection_matrix, self.K, tstamp)
             if idx not in self.current_window:
                 self.current_window = [idx] + self.current_window[:-1] if len(self.current_window) > 10 else [idx] + self.current_window
                 if not self.initialized:
@@ -144,8 +144,8 @@ class GSBackEnd(mp.Process):
         return np.stack(poses_cw)
 
     @torch.no_grad()
-    def eval_rendering(self, gtimages, gtdepthdir, traj, kf_idx):
-        eval_rendering(gtimages, gtdepthdir, traj, self.gaussians,self.save_dir, self.background,
+    def eval_rendering(self, gtimages, gtsemantic, gtdepthdir, traj, kf_idx):
+        eval_rendering(gtimages, gtsemantic, gtdepthdir, traj, self.gaussians,self.save_dir, self.background,
             self.projection_matrix, self.K, kf_idx, iteration="after_opt")
         eval_rendering_kf(self.viewpoints, self.gaussians, self.save_dir, self.background, iteration="after_opt")
 
@@ -165,15 +165,16 @@ class GSBackEnd(mp.Process):
         for mapping_iteration in range(self.init_itr_num):
             self.iteration_count += 1
             render_pkg = render(viewpoint, self.gaussians, self.background)
-            (image, viewspace_point_tensor, visibility_filter, radii, depth, n_touched) = (
+            (image, viewspace_point_tensor, visibility_filter, radii, depth, n_touched, semantic) = (
                 render_pkg["render"],
                 render_pkg["viewspace_points"],
                 render_pkg["visibility_filter"],
                 render_pkg["radii"],
                 render_pkg["depth"],
-                render_pkg["n_touched"]
+                render_pkg["n_touched"],
+                render_pkg["semantic"]
             )
-            loss_init = get_loss_mapping_rgbd(self.config, image, depth, viewpoint)
+            loss_init = get_loss_mapping_rgbd(self.config, image, semantic, depth, viewpoint)
             loss_init.backward()
 
             with torch.no_grad():
@@ -222,18 +223,19 @@ class GSBackEnd(mp.Process):
             radii_acm = []
 
             viewpoints = viewpoint_stack + [random_viewpoint_stack[idx] for idx in torch.randperm(len(random_viewpoint_stack))[:2]]
-            for viewpoint in viewpoints:
+            for idx, viewpoint in enumerate(viewpoints):
                 render_pkg = render(viewpoint, self.gaussians, self.background)
-                image, viewspace_point_tensor, visibility_filter, radii, depth, n_touched = (
+                image, viewspace_point_tensor, visibility_filter, radii, depth, n_touched, semantic = (
                     render_pkg["render"],
                     render_pkg["viewspace_points"],
                     render_pkg["visibility_filter"],
                     render_pkg["radii"],
                     render_pkg["depth"],
-                    render_pkg["n_touched"])
+                    render_pkg["n_touched"],
+                    render_pkg["semantic"])
 
                 loss_mapping += self.lambda_dnormal * get_loss_normal(depth, viewpoint) / 10.
-                loss_mapping += get_loss_mapping_rgbd(self.config, image, depth, viewpoint)
+                loss_mapping += get_loss_mapping_rgbd(self.config, image, semantic, depth, viewpoint)
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
                 visibility_filter_acm.append(visibility_filter)
                 radii_acm.append(radii)
@@ -301,12 +303,12 @@ class GSBackEnd(mp.Process):
             viewpoint_cam_idx = viewpoint_idx_stack.pop(random.randint(0, len(viewpoint_idx_stack) - 1))
             viewpoint_cam = self.viewpoints[viewpoint_cam_idx]
             render_pkg = render(viewpoint_cam, self.gaussians, self.background)
-            image, depth = render_pkg["render"], render_pkg["depth"]
+            image, depth, semantic = render_pkg["render"], render_pkg["depth"], render_pkg["semantic"]
             image = (torch.exp(viewpoint_cam.exposure_a)) * image + viewpoint_cam.exposure_b
 
             gt_image = viewpoint_cam.original_image.cuda()
             loss = (1.0 - self.opt_params.lambda_dssim) * l1_loss(image, gt_image) + self.opt_params.lambda_dssim * (1.0 - ssim(image, gt_image))
-            loss += get_loss_mapping_rgbd(self.config, image, depth, viewpoint_cam)
+            loss += get_loss_mapping_rgbd(self.config, image, semantic, depth, viewpoint_cam)
             if iteration < 7000:
                 loss += self.lambda_dnormal * get_loss_normal(depth, viewpoint_cam)
             else:

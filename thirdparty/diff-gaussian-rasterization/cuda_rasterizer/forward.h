@@ -58,6 +58,7 @@ namespace FORWARD
 		const float* view_points,
 		const float2* means2D,
 		const float* colors,
+		const float* semantics,
 		const float* ts,
 		const float2* ray_planes,
 		const float4* conic_opacity,
@@ -66,6 +67,7 @@ namespace FORWARD
 		uint32_t* n_contrib,
 		const float* bg_color,
 		float* out_color,
+		float* out_semantic,
 		float* out_depth,
 		float* accum_depth,
 		int* n_touched);

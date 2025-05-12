@@ -55,17 +55,19 @@ def render(viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, scalin
     scales = pc.get_scaling
     opacity = pc.get_opacity
     rotations = pc.get_rotation
+    semantics = pc.get_semantics
 
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = pc.get_features
     colors_precomp = None
 
-    rendered_image, radii, rendered_expected_depth, n_touched = rasterizer(
+    rendered_image, rendered_semantic, radii, rendered_expected_depth, n_touched = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
         colors_precomp = colors_precomp,
+        semantics = semantics,
         opacities = opacity,
         scales = scales,
         rotations = rotations,
@@ -77,6 +79,7 @@ def render(viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, scalin
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     return {"render": rendered_image,
+            "semantic": rendered_semantic,
             "depth": rendered_expected_depth,
             "viewspace_points": means2D,
             "visibility_filter" : radii > 0,

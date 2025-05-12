@@ -10,6 +10,7 @@ class Camera(nn.Module):
         color,
         depth,
         normal,
+        semantic,
         gt_T,
         projection_matrix,
         fx,
@@ -35,6 +36,7 @@ class Camera(nn.Module):
         self.original_image = color
         self.depth = depth
         self.normal = normal
+        self.semantic = semantic
         self.grad_mask = None
 
         self.fx = fx
@@ -62,12 +64,13 @@ class Camera(nn.Module):
         self.projection_matrix = projection_matrix.to(device=device)
 
     @staticmethod
-    def init_from_tracking(color, depth, normal, pose, idx, projection_matrix, K, tstamp=None):
+    def init_from_tracking(color, depth, normal, semantic, pose, idx, projection_matrix, K, tstamp=None):
         cam = Camera(
             idx,
             color,
             depth,
             normal,
+            semantic,
             pose,
             projection_matrix,
             K[0],
@@ -110,7 +113,7 @@ class Camera(nn.Module):
             znear=0.01, zfar=100.0, fx=fx, fy=fy, cx=cx, cy=cy, W=W, H=H
         ).transpose(0, 1)
         return Camera(
-            uid, None, None, None, T, projection_matrix, fx, fy, cx, cy, FoVx, FoVy, H, W
+            uid, None, None, None, None, T, projection_matrix, fx, fy, cx, cy, FoVx, FoVy, H, W
         )
 
     @property
@@ -132,11 +135,3 @@ class Camera(nn.Module):
     def update_RT(self, R, t):
         self.R = R.to(device=self.device)
         self.T = t.to(device=self.device)
-
-    def clean(self):
-        self.original_image = None
-        self.depth = None
-        self.grad_mask = None
-
-        self.cam_rot_delta = None
-        self.cam_trans_delta = None
