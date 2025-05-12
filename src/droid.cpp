@@ -70,13 +70,10 @@ std::vector<torch::Tensor> ba_cuda(
 std::vector<torch::Tensor> pgba_cuda(
     torch::Tensor poses,
     torch::Tensor disps,
+    torch::Tensor intrinsics,
+    torch::Tensor targets,
+    torch::Tensor weights,
     torch::Tensor eta,
-    torch::Tensor Hs,
-    torch::Tensor vs,
-    torch::Tensor Eii,
-    torch::Tensor Eij,
-    torch::Tensor Cii,
-    torch::Tensor wi,
     torch::Tensor Hsp,
     torch::Tensor vsp,
     torch::Tensor ii,
@@ -174,13 +171,10 @@ std::vector<torch::Tensor> ba(
 std::vector<torch::Tensor> pgba(
     torch::Tensor poses,
     torch::Tensor disps,
+    torch::Tensor intrinsics,
+    torch::Tensor targets,
+    torch::Tensor weights,
     torch::Tensor eta,
-    torch::Tensor Hs,
-    torch::Tensor vs,
-    torch::Tensor Eii,
-    torch::Tensor Eij,
-    torch::Tensor Cii,
-    torch::Tensor wi,
     torch::Tensor Hsp,
     torch::Tensor vsp,
     torch::Tensor ii,
@@ -197,8 +191,7 @@ std::vector<torch::Tensor> pgba(
   CHECK_INPUT(ii);
   CHECK_INPUT(jj);
 
-  return pgba_cuda(poses, disps, eta,
-                Hs, vs, Eii, Eij, Cii, wi,
+  return pgba_cuda(poses, disps, intrinsics, targets, weights, eta,
                 Hsp, vsp, ii, jj, iip, jjp, t0, t1, lm, ep);
 
 }

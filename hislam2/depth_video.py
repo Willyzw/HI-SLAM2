@@ -258,54 +258,10 @@ class DepthVideo:
         for _ in range(itrs):
             Hsp, vsp, pchi2, pchi2_scaled = global_relative_posesim3_constraints(iip, jjp, poses, rel_poses, infos, pw=1e-3)
 
-            disps = self.disps[:t1][None]
-
-            if verbose:
-                coords, valid = pops.projective_transform(poses, disps, self.intrinsics[None], ii, jj)
-                r = (target - coords).view(1, ii.shape[0], -1, 1)
-                rw = .001 * (valid * weight).view(1, ii.shape[0], -1, 1)
-                rchi2 = torch.sum((rw * r).transpose(2,3) @ r)
-                print("- Chi2 error reproj: {:.5f} relpose: {:.5f} {:.5f}".format(rchi2.item(), pchi2.item(), pchi2_scaled.item()))
-
-            B, P, ht, wd = disps.shape
-            N = ii.shape[0]
-            D = poses.manifold_dim
-
-            ### 1: commpute jacobians and residuals ###
-            coords, valid, (Ji, Jj, Jz) = pops.projective_transform(
-                poses, disps, self.intrinsics[None], ii, jj, jacobian=True)
-
-            r = (target - coords).view(B, N, -1, 1)
-            w = .001 * (valid * weight).view(B, N, -1, 1)
-
-            ### 2: construct linear system ###
-            Ji = Ji.reshape(B, N, -1, D)
-            Jj = Jj.reshape(B, N, -1, D)
-            wJiT = (w * Ji).transpose(2,3)
-            wJjT = (w * Jj).transpose(2,3)
-
-            Jz = Jz.reshape(B, N, ht*wd, -1)
-
-            Hii = torch.matmul(wJiT, Ji)
-            Hij = torch.matmul(wJiT, Jj)
-            Hji = torch.matmul(wJjT, Ji)
-            Hjj = torch.matmul(wJjT, Jj)
-            Hs = torch.cat((Hii, Hij, Hji, Hjj))
-
-            vi = torch.matmul(wJiT, r).squeeze(-1)
-            vj = torch.matmul(wJjT, r).squeeze(-1)
-            vs = torch.cat((vi, vj))
-
-            Ei = (wJiT.view(B,N,D,ht*wd,-1) * Jz[:,:,None]).sum(dim=-1)
-            Ej = (wJjT.view(B,N,D,ht*wd,-1) * Jz[:,:,None]).sum(dim=-1)
-
-            w = w.view(B, N, ht*wd, -1)
-            r = r.view(B, N, ht*wd, -1)
-            wk = torch.sum(w*r*Jz, dim=-1)
-            Ck = torch.sum(w*Jz*Jz, dim=-1)
-
-            dx, dz = droid_backends.pgba(poses.data[0], self.disps, eta,
-                                Hs, vs, Ei[0], Ej[0], Ck[0], wk[0],
+            ht, wd = self.disps.shape[1:]
+            dx, dz = droid_backends.pgba(poses.data[0], self.disps, self.intrinsics[0], 
+                                target.view(-1, ht, wd, 2).permute(0,3,1,2).contiguous(),
+                                weight.view(-1, ht, wd, 2).permute(0,3,1,2).contiguous(), eta,
                                 Hsp, vsp, ii, jj, iip, jjp, t0, t1, lm, ep)
             # print(dx.mean(), dz.mean())
             poses = pose_retr(poses, dx[None], torch.arange(t0, t1))
