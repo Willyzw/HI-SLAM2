@@ -45,6 +45,9 @@
       <a href="#run-evaluation">Run Evaluation</a>
     </li>
     <li>
+      <a href="#semantic-reconstruction">Semantic Reconstruction</a>
+    </li>
+    <li>
       <a href="#acknowledgement">Acknowledgement</a>
     </li>
     <li>
@@ -53,6 +56,11 @@
   </ol>
 </details>
 
+## Update (12. May 2025)
+We have made updates to the CUDA kernel in HI-SLAM2. As a result, it is necessary to recompile the kernel. Please run the following command after pulling the latest changes to ensure everything works properly:
+```Bash
+python setup.py install
+```
 
 ## Getting Started
 1. Clone the repo with submodules
@@ -166,6 +174,8 @@ there are some other command line arguments you can use:
 - `--start` start frame index (default: from the first frame)
 - `--length` number of frames to process (default: all frames)
 
+## Semantic Reconstruction
+For semantic reconstruction capabilities, please check the [Semantic](https://github.com/Willyzw/HI-SLAM2/tree/semantic) branch. This branch extends HI-SLAM2 with additional features for semantic understanding and reconstruction.
 
 ## Acknowledgement
 We build this project based on [DROID-SLAM](https://github.com/princeton-vl/DROID-SLAM), [MonoGS](https://github.com/muskie82/MonoGS), [RaDe-GS](https://github.com/BaowenZ/RaDe-GS) and [3DGS](https://github.com/graphdeco-inria/gaussian-splatting). The reconstruction evaluation is based on [evaluate_3d_reconstruction_lib](https://github.com/eriksandstroem/evaluate_3d_reconstruction_lib). We thank the authors for their great works and hope this open-source code can be useful for your research. 
